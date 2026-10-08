@@ -2,7 +2,7 @@
 
 A small Tomcat 9 web app built for practising **GitHub -> Jenkins -> WAR -> Docker/Tomcat** pipelines on AWS.
 It shows what is running (build/commit/build number), where (host or container, Java, Tomcat, memory),
-and has a **deploy journal** that persists to a mapped volume, so you can *prove* your volume mapping works.
+and has a **deploy journal** that persists to a mapped volume, so you can *prove* your volume mapping works..
 
 ## Endpoints
 
