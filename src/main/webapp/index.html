@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OpsBoard</title>
+<style>
+  :root{--bg:#0e1320;--card:#161d2f;--line:#25304a;--txt:#e7ecf6;--mut:#8995b1;--ok:#34d399;--bad:#f87171;--warn:#fbbf24;--acc:#60a5fa}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:20px 28px;border-bottom:1px solid var(--line)}
+  h1{margin:0;font-size:22px;letter-spacing:.3px}
+  h1 small{color:var(--mut);font-weight:400;font-size:13px;margin-left:8px}
+  .badge{padding:5px 14px;border-radius:999px;font-weight:600;font-size:13px;background:#3a2230;color:var(--bad)}
+  .badge.up{background:#12332a;color:var(--ok)}
+  .badge.deg{background:#3a3016;color:var(--warn)}
+  main{max-width:1100px;margin:0 auto;padding:24px;display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(310px,1fr))}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+  .card.wide{grid-column:1/-1}
+  h2{margin:0 0 12px;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--acc)}
+  dl{margin:0;display:grid;grid-template-columns:130px 1fr;gap:7px 10px}
+  dt{color:var(--mut)} dd{margin:0;word-break:break-all;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13.5px}
+  .bar{height:8px;background:var(--line);border-radius:6px;overflow:hidden;margin-top:6px}
+  .bar>i{display:block;height:100%;width:0;background:var(--acc);transition:width .4s}
+  .hint{margin-top:12px;font-size:13px;color:var(--mut)}
+  .hint code{background:#0b101c;padding:2px 6px;border-radius:5px;color:var(--txt)}
+  form{display:flex;gap:10px;margin-bottom:14px}
+  input[type=text]{flex:1;background:#0b101c;border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:10px 12px;font-size:14px}
+  button{background:var(--acc);color:#05121f;border:0;border-radius:8px;padding:10px 16px;font-weight:600;cursor:pointer}
+  button.ghost{background:transparent;color:var(--mut);border:1px solid var(--line)}
+  ul{list-style:none;margin:0;padding:0}
+  li{padding:10px 0;border-top:1px solid var(--line);display:flex;gap:14px}
+  li time{color:var(--mut);font:12.5px ui-monospace,Menlo,monospace;white-space:nowrap;padding-top:2px}
+  .empty{color:var(--mut);padding:8px 0}
+  footer{text-align:center;color:var(--mut);font-size:12.5px;padding:10px 0 30px}
+</style>
+</head>
+<body>
+<header>
+  <h1>OpsBoard <small>deployment &amp; container dashboard</small></h1>
+  <span id="health" class="badge">checking…</span>
+</header>
+
+<main>
+  <section class="card">
+    <h2>Build</h2>
+    <dl>
+      <dt>Version</dt><dd id="version">–</dd>
+      <dt>Git commit</dt><dd id="commit">–</dd>
+      <dt>Jenkins build</dt><dd id="build">–</dd>
+      <dt>Built at (UTC)</dt><dd id="btime">–</dd>
+    </dl>
+    <p class="hint">Change code, push, and watch the commit and build number change after the pipeline runs.</p>
+  </section>
+
+  <section class="card">
+    <h2>Runtime</h2>
+    <dl>
+      <dt>Host / container</dt><dd id="host">–</dd>
+      <dt>In Docker</dt><dd id="docker">–</dd>
+      <dt>Server</dt><dd id="server">–</dd>
+      <dt>Java</dt><dd id="java">–</dd>
+      <dt>CPUs</dt><dd id="cpus">–</dd>
+      <dt>Uptime</dt><dd id="uptime">–</dd>
+      <dt>Heap</dt><dd id="mem">–</dd>
+    </dl>
+    <div class="bar"><i id="membar"></i></div>
+  </section>
+
+  <section class="card">
+    <h2>Storage (volume mapping)</h2>
+    <dl>
+      <dt>Data dir</dt><dd id="ddir">–</dd>
+      <dt>Writable</dt><dd id="dwr">–</dd>
+      <dt>Entries</dt><dd id="dcount">–</dd>
+    </dl>
+    <p class="hint">Map a host folder to keep entries across redeploys:<br><code>-v /opt/tomcat/data:/data</code>.<br>Remove the container and re-run: if entries remain, your mount works.</p>
+  </section>
+
+  <section class="card wide">
+    <h2>Deploy journal</h2>
+    <form id="f">
+      <input id="t" type="text" maxlength="500" placeholder="e.g. Deployed v1.0.0 to prod, rolled back DB migration…" autocomplete="off">
+      <button type="submit">Add</button>
+      <button type="button" id="clear" class="ghost">Clear all</button>
+    </form>
+    <ul id="list"></ul>
+  </section>
+</main>
+<footer>OpsBoard &middot; endpoints: <code>/health</code> <code>/api/info</code> <code>/api/notes</code></footer>
+
+<script>
+const $ = id => document.getElementById(id);
+const set = (id, v) => { $(id).textContent = v; };
+const up = s => {
+  const d = Math.floor(s/86400), h = Math.floor(s%86400/3600), m = Math.floor(s%3600/60);
+  return (d ? d+'d ' : '') + (h ? h+'h ' : '') + m + 'm ' + (s%60) + 's';
+};
+
+async function loadInfo() {
+  try {
+    const j = await (await fetch('api/info', {cache:'no-store'})).json();
+    set('version', j.app.version); set('commit', j.app.gitCommit);
+    set('build', '#' + j.app.buildNumber); set('btime', j.app.buildTime);
+    set('host', j.runtime.hostname); set('docker', j.runtime.insideDocker ? 'yes' : 'no');
+    set('server', j.runtime.server); set('java', j.runtime.java); set('cpus', j.runtime.processors);
+    set('uptime', up(j.runtime.uptimeSeconds));
+    set('mem', j.runtime.memoryUsedMb + ' / ' + j.runtime.memoryMaxMb + ' MB');
+    $('membar').style.width = Math.min(100, 100*j.runtime.memoryUsedMb/j.runtime.memoryMaxMb) + '%';
+    set('ddir', j.storage.dataDir); set('dwr', j.storage.writable ? 'yes' : 'NO');
+  } catch (e) { /* keep last values */ }
+}
+
+async function loadHealth() {
+  const b = $('health');
+  try {
+    const r = await fetch('health', {cache:'no-store'});
+    const j = await r.json();
+    b.textContent = j.status;
+    b.className = 'badge ' + (j.status === 'UP' ? 'up' : 'deg');
+  } catch (e) { b.textContent = 'DOWN'; b.className = 'badge'; }
+}
+
+function render(j) {
+  set('dcount', j.count);
+  const ul = $('list'); ul.textContent = '';
+  if (!j.entries.length) {
+    const li = document.createElement('li'); li.className = 'empty'; li.textContent = 'No entries yet.';
+    ul.appendChild(li); return;
+  }
+  for (const e of j.entries) {
+    const li = document.createElement('li');
+    const t = document.createElement('time'); t.textContent = new Date(e.time).toLocaleString();
+    const s = document.createElement('span'); s.textContent = e.text;
+    li.append(t, s); ul.appendChild(li);
+  }
+}
+
+async function loadNotes() { try { render(await (await fetch('api/notes', {cache:'no-store'})).json()); } catch (e) {} }
+
+$('f').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const v = $('t').value.trim(); if (!v) return;
+  const r = await fetch('api/notes', {method:'POST', body:new URLSearchParams({text:v})});
+  if (r.ok) { $('t').value = ''; render(await r.json()); }
+});
+$('clear').addEventListener('click', async () => {
+  if (!confirm('Delete all journal entries?')) return;
+  const r = await fetch('api/notes', {method:'DELETE'}); if (r.ok) render(await r.json());
+});
+
+loadInfo(); loadHealth(); loadNotes();
+setInterval(loadInfo, 5000); setInterval(loadHealth, 5000);
+</script>
+</body>
+</html>
