@@ -36,7 +36,7 @@ pipeline {
 
         stage('Build & Test') {
             steps {
-                sh 'mvn -B clean package -Dgit.commit=$GIT_SHORT -Dbuild.number=$BUILD_NUMBER'
+                sh 'mvn  clean package -Dgit.commit=$GIT_SHORT -Dbuild.number=$BUILD_NUMBER'
             }
             post {
                 always { junit allowEmptyResults: true, testResults: 'target/surefire-reports/*.xml' }
